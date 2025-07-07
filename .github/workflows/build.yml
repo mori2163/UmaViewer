@@ -37,6 +37,10 @@ jobs:
           projectPath: ${{ matrix.projectPath }}
           unityVersion: ${{ matrix.unityVersion }}
           targetPlatform: ${{ matrix.targetPlatform }}
+          # Additional parameters for Android ARM64 build
+          customParameters: >-
+            ${{ matrix.targetPlatform == 'Android' && 
+            '-scriptingBackend IL2CPP -androidArchitecture ARM64' || '' }}
 
       - name: Zip Binary
         if: matrix.targetPlatform == 'StandaloneWindows64'
