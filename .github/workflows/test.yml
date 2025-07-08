@@ -1,0 +1,91 @@
+name: Build Windows Player and Android APK
+
+permissions:
+  contents: write
+
+on: 
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+jobs:
+  buildForPlatform:
+    name: build Player
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        targetPlatform:
+          - Android # Build an Android APK.
+          - StandaloneWindows64 # Build a Windows 64-bit standalone
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - uses: game-ci/unity-builder@v4
+        env:
+            UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+            UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+            UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          buildName: UmaViewer 
+          projectPath: ./ 
+          unityVersion: 2022.3.56f1
+          targetPlatform: ${{ matrix.targetPlatform }}
+          scriptingBackend: ${{ matrix.targetPlatform == 'Android' && 'IL2CPP' || '' }}
+          androidArchitecture: ${{ matrix.targetPlatform == 'Android' && 'ARM64' || '' }}
+          androidTargetSdkVersion: ${{ matrix.targetPlatform == 'Android' && '34' || '' }}
+
+      - name: Zip Windows Binary
+        if: matrix.targetPlatform == 'StandaloneWindows64'
+        run: zip -r UmaViewer_Windows.zip build/StandaloneWindows64/*
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Build-${{ matrix.targetPlatform }}
+          path: |
+            ${{ matrix.targetPlatform == 'Android' && 'build/Android/UmaViewer.apk' || '' }}
+            ${{ matrix.targetPlatform == 'StandaloneWindows64' && 'UmaViewer_Windows.zip' || '' }}
+
+  createRelease:
+    needs: buildForPlatform
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: AutoBuild-${{ github.sha }}
+          release_name: UmaViewer (AutoBuild ${{ github.sha }})
+          draft: false
+          prerelease: true
+
+      - name: Upload Windows Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifacts/Build-StandaloneWindows64/UmaViewer_Windows.zip
+          asset_name: UmaViewer_Windows.zip
+          asset_content_type: application/zip
+
+      - name: Upload Android Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifacts/Build-Android/UmaViewer.apk
+          asset_name: UmaViewer_Android.apk
+          asset_content_type: application/vnd.android.package-archive
